@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Email Refiner</title>
+  <style>
+    body {
+      width: 300px;
+      padding: 10px;
+    }
+    textarea {
+      width: 100%;
+      height: 150px;
+      margin-bottom: 10px;
+    }
+    button {
+      padding: 8px 15px;
+      cursor: pointer;
+    }
+    #refinedText {
+      margin-top: 10px;
+      border: 1px solid #ccc;
+      padding: 10px;
+      white-space: pre-wrap; /* Preserve line breaks */
+    }
+  </style>
+</head>
+<body>
+  <h2>Refine Your Email</h2>
+  <textarea id="originalEmail" placeholder="Paste your email here..."></textarea>
+  <button id="refineButton">Refine</button>
+  <div id="refinedText" style="display: none;">
+    <h3>Refined Email:</h3>
+    <p id="refinedOutput"></p>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>
