@@ -180,4 +180,42 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     }
     return true; // Indicate we'll send a response asynchronously
   }
+  else if (request.action === "pasteRefinedText") {
+    try {
+      // Re-find the textarea if needed
+      if (!composingTextArea || !document.contains(composingTextArea)) {
+        composingTextArea = findComposingTextArea();
+      }
+      
+      if (!composingTextArea) {
+        console.error("Cannot find compose area to paste text");
+        sendResponse({ success: false, error: "Cannot find Gmail compose area" });
+        return true;
+      }
+      
+      // Paste the refined text into the compose area
+      console.log("Pasting refined text into compose area");
+      
+      // Approach 1: Set the content directly
+      composingTextArea.innerHTML = request.refinedText;
+      
+      // Approach 2: Focus element and dispatch events to more naturally simulate typing
+      composingTextArea.focus();
+      
+      // Create and dispatch input event to ensure Gmail recognizes the change
+      const inputEvent = new Event('input', { bubbles: true });
+      composingTextArea.dispatchEvent(inputEvent);
+      
+      // Dispatch change event
+      const changeEvent = new Event('change', { bubbles: true });
+      composingTextArea.dispatchEvent(changeEvent);
+      
+      console.log("Text pasted successfully");
+      sendResponse({ success: true });
+    } catch (error) {
+      console.error("Error pasting refined text:", error);
+      sendResponse({ success: false, error: error.message });
+    }
+    return true; // Indicate we'll send a response asynchronously
+  }
 });
