@@ -1,239 +1,256 @@
-// Improved content script for Email Refiner extension
-let composingTextArea = null;
-let observer = null;
-
-function findComposingTextArea() {
-  // Updated selectors for Gmail's compose area with more specific targeting
-  const possibleSelectors = [
-    // Common Gmail composer selectors
-    'div[role="textbox"][g_editable="true"]',
-    'div[role="textbox"][contenteditable="true"]',
-    'div[aria-label*="Message Body"][contenteditable="true"]',
-    'div[aria-label*="message body"][contenteditable="true"]',
-    'div.Am.Al.editable[contenteditable="true"]',
-    // Try to locate specific Gmail compose box elements
-    '.Ar.Au div[contenteditable="true"]',
-    '.Am.Al.editable',
-    '.Ak.aXjCH div[role="textbox"]'
-  ];
+document.addEventListener('DOMContentLoaded', () => {
+  const refineButton = document.getElementById('refineButton');
+  const originalEmailInput = document.getElementById('originalEmail');
+  const refinedTextDiv = document.getElementById('refinedText');
+  const refinedOutputParagraph = document.getElementById('refinedOutput');
+  const copyButton = document.getElementById('copyButton');
+  const applyToEmailButton = document.getElementById('applyToEmailButton');
   
-  for (const selector of possibleSelectors) {
-    const elements = document.querySelectorAll(selector);
-    console.log(`Checking selector: ${selector}, found ${elements.length} elements`);
-    
-    for (const el of elements) {
-      // Check if element is visible and active in the DOM
-      if (el.offsetParent !== null && 
-          el.offsetHeight > 0 && 
-          el.offsetWidth > 0) {
-        console.log("Found composing text area:", el);
-        return el;
-      }
+  // Storage key for API key
+  const API_KEY_STORAGE_KEY = 'openai_api_key';
+  let apiKey = '';
+  
+  // Try to load the API key from storage
+  chrome.storage.local.get([API_KEY_STORAGE_KEY], (result) => {
+    if (result[API_KEY_STORAGE_KEY]) {
+      apiKey = result[API_KEY_STORAGE_KEY];
+      showApiKeyStatus(true);
+    } else {
+      showApiKeyStatus(false);
     }
+  });
+  
+  // Add API key input element
+  const apiKeyInput = document.createElement('input');
+  apiKeyInput.type = 'password';
+  apiKeyInput.id = 'apiKeyInput';
+  apiKeyInput.placeholder = 'Enter your OpenAI API key';
+  apiKeyInput.style.width = '100%';
+  apiKeyInput.style.marginBottom = '10px';
+  
+  const saveApiKeyButton = document.createElement('button');
+  saveApiKeyButton.textContent = 'Save API Key';
+  saveApiKeyButton.style.marginBottom = '10px';
+  
+  const apiKeyStatus = document.createElement('div');
+  apiKeyStatus.id = 'apiKeyStatus';
+  apiKeyStatus.style.marginBottom = '10px';
+  
+  // Insert elements after the h2 title
+  const title = document.querySelector('h2');
+  title.parentNode.insertBefore(apiKeyStatus, title.nextSibling);
+  title.parentNode.insertBefore(saveApiKeyButton, apiKeyStatus);
+  title.parentNode.insertBefore(apiKeyInput, saveApiKeyButton);
+  
+  function showApiKeyStatus(isSet) {
+    apiKeyStatus.textContent = isSet ? 
+      'API key is set ✓' : 
+      'Please enter your OpenAI API key';
+    apiKeyStatus.style.color = isSet ? 'green' : 'red';
   }
   
-  // If still not found, try a broader approach
-  const allEditables = document.querySelectorAll('[contenteditable="true"]');
-  for (const el of allEditables) {
-    if (el.offsetParent !== null && 
-        el.offsetHeight > 0 && 
-        el.offsetWidth > 0 &&
-        (el.innerText || el.textContent)) {
-      console.log("Found editable area using broader approach:", el);
-      return el;
-    }
+  function showStatusMessage(message, isError = false) {
+    const statusDiv = document.createElement('div');
+    statusDiv.className = isError ? 'status error' : 'status success';
+    statusDiv.textContent = message;
+    
+    // Insert after the refine button
+    refineButton.parentNode.insertBefore(statusDiv, refineButton.nextSibling);
+    
+    // Remove after 5 seconds
+    setTimeout(() => {
+      statusDiv.remove();
+    }, 5000);
   }
   
-  console.log("No composing text area found");
-  return null;
-}
+  saveApiKeyButton.addEventListener('click', () => {
+    const newApiKey = apiKeyInput.value.trim();
+    if (newApiKey) {
+      chrome.storage.local.set({ [API_KEY_STORAGE_KEY]: newApiKey }, () => {
+        apiKey = newApiKey;
+        apiKeyInput.value = '';
+        showApiKeyStatus(true);
+        showStatusMessage('API key saved successfully');
+      });
+    } else {
+      showStatusMessage('Please enter a valid API key', true);
+    }
+  });
 
-function handleInputChange() {
-  if (composingTextArea) {
-    const currentText = composingTextArea.textContent || composingTextArea.innerText;
+  const getComposingText = async () => {
+    console.log("Popup requesting composing text from background");
     
-    // Only send non-empty text
-    if (currentText && currentText.trim()) {
-      console.log("Current composing text detected:", currentText.substring(0, 50) + (currentText.length > 50 ? "..." : ""));
-      
-      // Send to background script with error handling
+    return new Promise((resolve) => {
       try {
-        chrome.runtime.sendMessage({ 
-          action: "updateComposingText", 
-          text: currentText 
-        }, (response) => {
+        chrome.runtime.sendMessage({ action: "getComposingText" }, (response) => {
           if (chrome.runtime.lastError) {
-            console.log("Error sending message:", chrome.runtime.lastError.message);
+            console.error("Error getting composing text:", chrome.runtime.lastError);
+            resolve("");
+            return;
           }
+          
+          console.log("Received composing text response:", response ? "yes" : "no");
+          resolve(response && response.text ? response.text : "");
         });
       } catch (error) {
-        console.error("Failed to send message to background script:", error);
+        console.error("Exception getting composing text:", error);
+        resolve("");
       }
-    }
-  }
-}
-
-// Function to insert refined text into the compose area
-function insertTextIntoComposer(text) {
-  if (!text || !text.trim()) {
-    console.error("Cannot insert empty text");
-    return false;
-  }
-  
-  // Find the compose area
-  const textArea = findComposingTextArea();
-  if (!textArea) {
-    console.error("Compose area not found");
-    return false;
-  }
-  
-  try {
-    // Clear the current content
-    textArea.textContent = '';
-    
-    // Insert the new content
-    // Using document.execCommand with insertText to ensure proper formatting
-    textArea.focus();
-    const success = document.execCommand('insertText', false, text);
-    
-    if (!success) {
-      // Fallback method if execCommand fails
-      textArea.textContent = text;
-    }
-    
-    // Dispatch input event to ensure Gmail registers the change
-    const inputEvent = new Event('input', {
-      bubbles: true,
-      cancelable: true,
     });
-    textArea.dispatchEvent(inputEvent);
-    
-    console.log("Successfully inserted refined text into composer");
-    return true;
-  } catch (error) {
-    console.error("Error inserting text:", error);
-    return false;
-  }
-}
+  };
 
-function setupListeners() {
-  // First, try to find the textarea on initial load
-  composingTextArea = findComposingTextArea();
-  if (composingTextArea) {
-    console.log("Found composing text area on initial load");
-    // Remove any existing listeners to prevent duplicates
-    composingTextArea.removeEventListener('input', handleInputChange);
-    composingTextArea.addEventListener('input', handleInputChange);
-    // Capture initial text if any
-    handleInputChange();
-  }
-  
-  // Disconnect any existing observer
-  if (observer) {
-    observer.disconnect();
-  }
-  
-  // Set up mutation observer to detect when compose window appears
-  observer = new MutationObserver((mutations) => {
-    let shouldCheck = false;
-    
-    for (const mutation of mutations) {
-      // Check if relevant DOM changes occurred
-      if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
-        shouldCheck = true;
-        break;
-      } else if (mutation.type === 'attributes' && 
-                 (mutation.attributeName === 'style' || 
-                  mutation.attributeName === 'class')) {
-        shouldCheck = true;
-        break;
+  const refineText = async (textToRefine) => {
+    if (!textToRefine.trim()) {
+      refinedOutputParagraph.textContent = "Please enter or type some text to refine.";
+      refinedTextDiv.style.display = 'block';
+      return;
+    }
+
+    if (!apiKey) {
+      refinedOutputParagraph.textContent = "Please set your OpenAI API key first.";
+      refinedTextDiv.style.display = 'block';
+      return;
+    }
+
+    refinedOutputParagraph.textContent = "Refining...";
+    refinedTextDiv.style.display = 'block';
+
+    try {
+      // Using the current OpenAI API format (chat completions)
+      const response = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`
+        },
+        body: JSON.stringify({
+          model: "gpt-3.5-turbo",
+          messages: [
+            {
+              role: "system",
+              content: "You are a professional email editor. Improve the text for clarity, tone, and grammar, making it suitable for professional communication."
+            },
+            {
+              role: "user",
+              content: textToRefine
+            }
+          ],
+          max_tokens: 500
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(`API Error: ${errorData.error?.message || response.status}`);
       }
+
+      const data = await response.json();
+      if (data && data.choices && data.choices.length > 0 && data.choices[0].message) {
+        const refinedText = data.choices[0].message.content.trim();
+        refinedOutputParagraph.textContent = refinedText;
+      } else {
+        refinedOutputParagraph.textContent = "Could not retrieve refined text.";
+      }
+
+    } catch (error) {
+      console.error("Error calling OpenAI API:", error);
+      refinedOutputParagraph.textContent = `Error: ${error.message || "Failed to refine text"}`;
+    }
+  };
+
+  // Auto-populate the textarea when popup opens
+  window.addEventListener('load', async () => {
+    console.log("Popup loaded, attempting to get composing text");
+    try {
+      const composingText = await getComposingText();
+      if (composingText) {
+        console.log("Found composing text, setting in textarea");
+        originalEmailInput.value = composingText;
+      } else {
+        console.log("No composing text found");
+      }
+    } catch (error) {
+      console.error("Error auto-populating textarea:", error);
+    }
+  });
+
+  refineButton.addEventListener('click', async () => {
+    console.log("Refine button clicked");
+    
+    // First check for text in the textarea
+    if (originalEmailInput.value.trim()) {
+      refineText(originalEmailInput.value);
+      return;
     }
     
-    if (shouldCheck) {
-      // Only look for the text area if we haven't found it yet or it's no longer valid
-      if (!composingTextArea || !document.contains(composingTextArea)) {
-        composingTextArea = findComposingTextArea();
-        if (composingTextArea) {
-          console.log("Found composing text area after DOM change");
-          // Remove any existing listeners to prevent duplicates
-          composingTextArea.removeEventListener('input', handleInputChange);
-          composingTextArea.addEventListener('input', handleInputChange);
-          // Capture initial text if any
-          handleInputChange();
+    // If no text in the textarea, try to get it from the background script
+    const composingText = await getComposingText();
+    if (composingText) {
+      originalEmailInput.value = composingText;
+      refineText(composingText);
+    } else {
+      refinedOutputParagraph.textContent = "Please start typing in Gmail or paste your email.";
+      refinedTextDiv.style.display = 'block';
+    }
+  });
+
+  // Copy refined text to clipboard
+  copyButton.addEventListener('click', () => {
+    const refinedText = refinedOutputParagraph.textContent;
+    if (refinedText) {
+      navigator.clipboard.writeText(refinedText)
+        .then(() => {
+          showStatusMessage('Copied to clipboard!');
+        })
+        .catch(err => {
+          console.error('Failed to copy text: ', err);
+          showStatusMessage('Failed to copy text', true);
+        });
+    }
+  });
+  
+  // Add functionality for the Apply to Email button
+  applyToEmailButton.addEventListener('click', () => {
+    const refinedText = refinedOutputParagraph.textContent;
+    if (refinedText) {
+      // Send message to content script to insert the text into the compose area
+      chrome.tabs.query({active: true, currentWindow: true}, (tabs) => {
+        if (tabs[0] && tabs[0].id) {
+          chrome.tabs.sendMessage(tabs[0].id, {
+            action: "insertRefinedText",
+            text: refinedText
+          }, (response) => {
+            if (chrome.runtime.lastError) {
+              console.error("Error sending message to content script:", chrome.runtime.lastError);
+              showStatusMessage('Failed to apply text to email: ' + chrome.runtime.lastError.message, true);
+            } else if (response && response.success) {
+              showStatusMessage('Successfully applied to email!');
+              // Close the popup after applying
+              setTimeout(() => window.close(), 1500);
+            } else {
+              showStatusMessage('Failed to apply text to email', true);
+            }
+          });
+        } else {
+          showStatusMessage('No active Gmail tab found', true);
         }
-      }
+      });
+    } else {
+      showStatusMessage('No refined text available to apply', true);
     }
   });
   
-  // Observe changes to the entire document
-  observer.observe(document.body, { 
-    childList: true, 
-    subtree: true,
-    attributes: true,
-    attributeFilter: ['style', 'class', 'aria-label', 'role'] // Watch for relevant attribute changes
-  });
-}
-
-// Direct document ready check
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', () => {
-    console.log("Email Refiner content script loaded on DOMContentLoaded");
-    setupListeners();
-  });
-} else {
-  console.log("Email Refiner content script loaded (document already ready)");
-  setupListeners();
-}
-
-// Run the setup when the content script is injected
-// Small delay to let Gmail initialize first
-setTimeout(() => {
-  console.log("Running initial setup after timeout");
-  setupListeners();
-}, 2000);
-
-// Periodically check for new compose windows (Gmail is very dynamic)
-setInterval(() => {
-  if (!composingTextArea || !document.contains(composingTextArea)) {
-    console.log("Periodic check for new compose windows...");
-    setupListeners();
-  }
-}, 5000);
-
-// Handle messages from the popup or background script
-chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  console.log("Content script received message:", request.action);
-  
-  if (request.action === "getComposingText") {
-    try {
-      // Re-find the textarea if needed
-      if (!composingTextArea || !document.contains(composingTextArea)) {
-        composingTextArea = findComposingTextArea();
-      }
-      
-      const text = composingTextArea ? 
-        (composingTextArea.textContent || composingTextArea.innerText) : "";
-      
-      console.log("Sending composing text (length):", text.length);
-      sendResponse({ text: text });
-    } catch (error) {
-      console.error("Error in getComposingText handler:", error);
-      sendResponse({ text: "", error: error.message });
+  // Listen for messages from the background script (for selected text refinement)
+  chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+    console.log("Popup received message:", request.action);
+    
+    if (request.action === "refineText" && request.selectedText) {
+      // Set the text in the textarea
+      originalEmailInput.value = request.selectedText;
+      // Refine the text
+      refineText(request.selectedText);
     }
-    return true; // Indicate we'll send a response asynchronously
-  }
-  
-  // Handle inserting refined text into the compose area
-  if (request.action === "insertRefinedText" && request.text) {
-    try {
-      console.log("Attempting to insert refined text");
-      const success = insertTextIntoComposer(request.text);
-      sendResponse({ success: success });
-    } catch (error) {
-      console.error("Error inserting refined text:", error);
-      sendResponse({ success: false, error: error.message });
-    }
-    return true; // Indicate we'll send a response asynchronously
-  }
+    
+    return true; // Indicate that we might send a response asynchronously
+  });
 });
