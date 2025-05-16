@@ -4,6 +4,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const refinedTextDiv = document.getElementById('refinedText');
   const refinedOutputParagraph = document.getElementById('refinedOutput');
   const copyButton = document.getElementById('copyButton');
+  const applyToEmailButton = document.getElementById('applyToEmailButton');
   
   // Storage key for API key
   const API_KEY_STORAGE_KEY = 'openai_api_key';
@@ -205,6 +206,37 @@ document.addEventListener('DOMContentLoaded', () => {
           console.error('Failed to copy text: ', err);
           showStatusMessage('Failed to copy text', true);
         });
+    }
+  });
+  
+  // Apply refined text directly to the email compose area
+  applyToEmailButton.addEventListener('click', () => {
+    const refinedText = refinedOutputParagraph.textContent;
+    if (refinedText) {
+      // Send message to content script to insert the text into the compose area
+      chrome.tabs.query({active: true, currentWindow: true}, (tabs) => {
+        if (tabs[0] && tabs[0].id) {
+          chrome.tabs.sendMessage(tabs[0].id, {
+            action: "insertRefinedText",
+            text: refinedText
+          }, (response) => {
+            if (chrome.runtime.lastError) {
+              console.error("Error sending message to content script:", chrome.runtime.lastError);
+              showStatusMessage('Failed to apply text to email: ' + chrome.runtime.lastError.message, true);
+            } else if (response && response.success) {
+              showStatusMessage('Successfully applied to email!');
+              // Close the popup after applying
+              setTimeout(() => window.close(), 1500);
+            } else {
+              showStatusMessage('Failed to apply text to email', true);
+            }
+          });
+        } else {
+          showStatusMessage('No active Gmail tab found', true);
+        }
+      });
+    } else {
+      showStatusMessage('No refined text available to apply', true);
     }
   });
   
