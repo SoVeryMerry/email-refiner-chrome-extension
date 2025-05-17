@@ -1,4 +1,5 @@
 document.addEventListener('DOMContentLoaded', () => {
+  console.log("Popup DOM loaded");
   const refineButton = document.getElementById('refineButton');
   const originalEmailInput = document.getElementById('originalEmail');
   const refinedTextDiv = document.getElementById('refinedText');
@@ -11,14 +12,19 @@ document.addEventListener('DOMContentLoaded', () => {
   let apiKey = '';
   
   // Try to load the API key from storage
-  chrome.storage.local.get([API_KEY_STORAGE_KEY], (result) => {
-    if (result[API_KEY_STORAGE_KEY]) {
-      apiKey = result[API_KEY_STORAGE_KEY];
-      showApiKeyStatus(true);
-    } else {
-      showApiKeyStatus(false);
-    }
-  });
+  if (chrome.storage && chrome.storage.local) {
+    chrome.storage.local.get([API_KEY_STORAGE_KEY], (result) => {
+      if (result[API_KEY_STORAGE_KEY]) {
+        apiKey = result[API_KEY_STORAGE_KEY];
+        showApiKeyStatus(true);
+      } else {
+        showApiKeyStatus(false);
+      }
+    });
+  } else {
+    console.error("Chrome storage API not available");
+    showApiKeyStatus(false);
+  }
   
   // Add API key input element
   const apiKeyInput = document.createElement('input');
@@ -63,35 +69,42 @@ document.addEventListener('DOMContentLoaded', () => {
     }, 5000);
   }
   
-  saveApiKeyButton.addEventListener('click', () => {
-    const newApiKey = apiKeyInput.value.trim();
-    if (newApiKey) {
-      chrome.storage.local.set({ [API_KEY_STORAGE_KEY]: newApiKey }, () => {
-        apiKey = newApiKey;
-        apiKeyInput.value = '';
-        showApiKeyStatus(true);
-        showStatusMessage('API key saved successfully');
-      });
-    } else {
-      showStatusMessage('Please enter a valid API key', true);
-    }
-  });
+  if (saveApiKeyButton && chrome.storage && chrome.storage.local) {
+    saveApiKeyButton.addEventListener('click', () => {
+      const newApiKey = apiKeyInput.value.trim();
+      if (newApiKey) {
+        chrome.storage.local.set({ [API_KEY_STORAGE_KEY]: newApiKey }, () => {
+          apiKey = newApiKey;
+          apiKeyInput.value = '';
+          showApiKeyStatus(true);
+          showStatusMessage('API key saved successfully');
+        });
+      } else {
+        showStatusMessage('Please enter a valid API key', true);
+      }
+    });
+  }
 
   const getComposingText = async () => {
     console.log("Popup requesting composing text from background");
     
     return new Promise((resolve) => {
       try {
-        chrome.runtime.sendMessage({ action: "getComposingText" }, (response) => {
-          if (chrome.runtime.lastError) {
-            console.error("Error getting composing text:", chrome.runtime.lastError);
-            resolve("");
-            return;
-          }
-          
-          console.log("Received composing text response:", response ? "yes" : "no");
-          resolve(response && response.text ? response.text : "");
-        });
+        if (chrome.runtime && chrome.runtime.sendMessage) {
+          chrome.runtime.sendMessage({ action: "getComposingText" }, (response) => {
+            if (chrome.runtime.lastError) {
+              console.error("Error getting composing text:", chrome.runtime.lastError);
+              resolve("");
+              return;
+            }
+            
+            console.log("Received composing text response:", response ? "yes" : "no");
+            resolve(response && response.text ? response.text : "");
+          });
+        } else {
+          console.error("Chrome runtime messaging API not available");
+          resolve("");
+        }
       } catch (error) {
         console.error("Exception getting composing text:", error);
         resolve("");
@@ -160,7 +173,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Auto-populate the textarea when popup opens
   window.addEventListener('load', async () => {
-    console.log("Popup loaded, attempting to get composing text");
+    console.log("Popup window loaded, attempting to get composing text");
     try {
       const composingText = await getComposingText();
       if (composingText) {
@@ -174,83 +187,93 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  refineButton.addEventListener('click', async () => {
-    console.log("Refine button clicked");
-    
-    // First check for text in the textarea
-    if (originalEmailInput.value.trim()) {
-      refineText(originalEmailInput.value);
-      return;
-    }
-    
-    // If no text in the textarea, try to get it from the background script
-    const composingText = await getComposingText();
-    if (composingText) {
-      originalEmailInput.value = composingText;
-      refineText(composingText);
-    } else {
-      refinedOutputParagraph.textContent = "Please start typing in Gmail or paste your email.";
-      refinedTextDiv.style.display = 'block';
-    }
-  });
+  if (refineButton) {
+    refineButton.addEventListener('click', async () => {
+      console.log("Refine button clicked");
+      
+      // First check for text in the textarea
+      if (originalEmailInput.value.trim()) {
+        refineText(originalEmailInput.value);
+        return;
+      }
+      
+      // If no text in the textarea, try to get it from the background script
+      const composingText = await getComposingText();
+      if (composingText) {
+        originalEmailInput.value = composingText;
+        refineText(composingText);
+      } else {
+        refinedOutputParagraph.textContent = "Please start typing in Gmail or paste your email.";
+        refinedTextDiv.style.display = 'block';
+      }
+    });
+  }
 
   // Copy refined text to clipboard
-  copyButton.addEventListener('click', () => {
-    const refinedText = refinedOutputParagraph.textContent;
-    if (refinedText) {
-      navigator.clipboard.writeText(refinedText)
-        .then(() => {
-          showStatusMessage('Copied to clipboard!');
-        })
-        .catch(err => {
-          console.error('Failed to copy text: ', err);
-          showStatusMessage('Failed to copy text', true);
-        });
-    }
-  });
+  if (copyButton) {
+    copyButton.addEventListener('click', () => {
+      const refinedText = refinedOutputParagraph.textContent;
+      if (refinedText) {
+        navigator.clipboard.writeText(refinedText)
+          .then(() => {
+            showStatusMessage('Copied to clipboard!');
+          })
+          .catch(err => {
+            console.error('Failed to copy text: ', err);
+            showStatusMessage('Failed to copy text', true);
+          });
+      }
+    });
+  }
   
   // Apply refined text directly to the email compose area
-  applyToEmailButton.addEventListener('click', () => {
-    const refinedText = refinedOutputParagraph.textContent;
-    if (refinedText) {
-      // Send message to content script to insert the text into the compose area
-      chrome.tabs.query({active: true, currentWindow: true}, (tabs) => {
-        if (tabs[0] && tabs[0].id) {
-          chrome.tabs.sendMessage(tabs[0].id, {
-            action: "insertRefinedText",
-            text: refinedText
-          }, (response) => {
-            if (chrome.runtime.lastError) {
-              console.error("Error sending message to content script:", chrome.runtime.lastError);
-              showStatusMessage('Failed to apply text to email: ' + chrome.runtime.lastError.message, true);
-            } else if (response && response.success) {
-              showStatusMessage('Successfully applied to email!');
-              // Close the popup after applying
-              setTimeout(() => window.close(), 1500);
-            } else {
-              showStatusMessage('Failed to apply text to email', true);
-            }
-          });
-        } else {
-          showStatusMessage('No active Gmail tab found', true);
-        }
-      });
-    } else {
-      showStatusMessage('No refined text available to apply', true);
-    }
-  });
+  if (applyToEmailButton && chrome.tabs) {
+    applyToEmailButton.addEventListener('click', () => {
+      const refinedText = refinedOutputParagraph.textContent;
+      if (refinedText) {
+        // Send message to content script to insert the text into the compose area
+        chrome.tabs.query({active: true, currentWindow: true}, (tabs) => {
+          if (tabs[0] && tabs[0].id) {
+            chrome.tabs.sendMessage(tabs[0].id, {
+              action: "insertRefinedText",
+              text: refinedText
+            }, (response) => {
+              if (chrome.runtime.lastError) {
+                console.error("Error sending message to content script:", chrome.runtime.lastError);
+                showStatusMessage('Failed to apply text to email: ' + chrome.runtime.lastError.message, true);
+              } else if (response && response.success) {
+                showStatusMessage('Successfully applied to email!');
+                // Close the popup after applying
+                setTimeout(() => window.close(), 1500);
+              } else {
+                showStatusMessage('Failed to apply text to email', true);
+              }
+            });
+          } else {
+            showStatusMessage('No active Gmail tab found', true);
+          }
+        });
+      } else {
+        showStatusMessage('No refined text available to apply', true);
+      }
+    });
+  }
   
   // Listen for messages from the background script (for selected text refinement)
-  chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-    console.log("Popup received message:", request.action);
-    
-    if (request.action === "refineText" && request.selectedText) {
-      // Set the text in the textarea
-      originalEmailInput.value = request.selectedText;
-      // Refine the text
-      refineText(request.selectedText);
-    }
-    
-    return true; // Indicate that we might send a response asynchronously
-  });
+  if (chrome.runtime && chrome.runtime.onMessage) {
+    chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+      console.log("Popup received message:", request.action);
+      
+      if (request.action === "refineText" && request.selectedText) {
+        // Set the text in the textarea
+        originalEmailInput.value = request.selectedText;
+        // Refine the text
+        refineText(request.selectedText);
+      }
+      
+      return true; // Indicate that we might send a response asynchronously
+    });
+  } else {
+    console.error("Chrome runtime messaging API not available in popup");
+  }
 });
