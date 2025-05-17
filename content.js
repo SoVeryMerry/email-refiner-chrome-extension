@@ -1,131 +1,220 @@
-// Content script for Email Refiner extension
-console.log("Email Refiner content script loaded");
+// Content script modifications for Email Refiner extension
+let composingTextArea = null;
+let observer = null;
 
-// Initialize a variable to track the currently focused compose area
-let currentComposeArea = null;
-
-// Function to find Gmail compose windows and attach listeners
-function setupGmailListeners() {
-  console.log("Setting up Gmail listeners");
+function findComposingTextArea() {
+  // Updated selectors for Gmail's compose area with more specific targeting
+  const possibleSelectors = [
+    // Common Gmail composer selectors
+    'div[role="textbox"][g_editable="true"]',
+    'div[role="textbox"][contenteditable="true"]',
+    'div[aria-label*="Message Body"][contenteditable="true"]',
+    'div[aria-label*="message body"][contenteditable="true"]',
+    'div.Am.Al.editable[contenteditable="true"]',
+    // Try to locate specific Gmail compose box elements
+    '.Ar.Au div[contenteditable="true"]',
+    '.Am.Al.editable',
+    '.Ak.aXjCH div[role="textbox"]'
+  ];
   
-  // Observer to watch for new elements (like when a compose window opens)
-  const observer = new MutationObserver((mutations) => {
-    mutations.forEach((mutation) => {
-      if (mutation.addedNodes && mutation.addedNodes.length > 0) {
-        // Check for new compose areas
-        const composeAreas = document.querySelectorAll('[role="textbox"][g_editable="true"]');
-        composeAreas.forEach(composeArea => {
-          if (!composeArea.dataset.refinedTracked) {
-            console.log("Found new compose area, attaching listeners");
-            attachComposeListener(composeArea);
+  for (const selector of possibleSelectors) {
+    const elements = document.querySelectorAll(selector);
+    console.log(`Checking selector: ${selector}, found ${elements.length} elements`);
+    
+    for (const el of elements) {
+      // Check if element is visible and active in the DOM
+      if (el.offsetParent !== null && 
+          el.offsetHeight > 0 && 
+          el.offsetWidth > 0) {
+        console.log("Found composing text area:", el);
+        return el;
+      }
+    }
+  }
+  
+  // If still not found, try a broader approach
+  const allEditables = document.querySelectorAll('[contenteditable="true"]');
+  for (const el of allEditables) {
+    if (el.offsetParent !== null && 
+        el.offsetHeight > 0 && 
+        el.offsetWidth > 0 &&
+        (el.innerText || el.textContent)) {
+      console.log("Found editable area using broader approach:", el);
+      return el;
+    }
+  }
+  
+  console.log("No composing text area found");
+  return null;
+}
+
+function handleInputChange() {
+  if (composingTextArea) {
+    const currentText = composingTextArea.textContent || composingTextArea.innerText;
+    
+    // Only send non-empty text
+    if (currentText && currentText.trim()) {
+      console.log("Current composing text detected:", currentText.substring(0, 50) + (currentText.length > 50 ? "..." : ""));
+      
+      // Send to background script with error handling
+      try {
+        chrome.runtime.sendMessage({ 
+          action: "updateComposingText", 
+          text: currentText 
+        }, (response) => {
+          if (chrome.runtime.lastError) {
+            console.log("Error sending message:", chrome.runtime.lastError.message);
           }
         });
+      } catch (error) {
+        console.error("Failed to send message to background script:", error);
       }
+    }
+  }
+}
+
+// Function to paste text into the Gmail compose box
+function pasteIntoGmail(textToPaste) {
+  try {
+    // Make sure we have the most current composing area
+    if (!composingTextArea || !document.contains(composingTextArea)) {
+      composingTextArea = findComposingTextArea();
+    }
+    
+    if (!composingTextArea) {
+      console.error("Could not find Gmail compose area for pasting");
+      return { success: false, error: "No compose area found" };
+    }
+    
+    // Replace the current text with the refined text
+    composingTextArea.textContent = textToPaste;
+    
+    // Trigger input event to ensure Gmail registers the change
+    const inputEvent = new Event('input', {
+      bubbles: true,
+      cancelable: true
     });
-  });
-  
-  // Start observing the document body
-  observer.observe(document.body, {
-    childList: true,
-    subtree: true
-  });
-  
-  // Also check for any existing compose areas
-  const composeAreas = document.querySelectorAll('[role="textbox"][g_editable="true"]');
-  composeAreas.forEach(composeArea => {
-    console.log("Found existing compose area, attaching listeners");
-    attachComposeListener(composeArea);
-  });
+    composingTextArea.dispatchEvent(inputEvent);
+    
+    console.log("Successfully pasted text into Gmail");
+    return { success: true };
+  } catch (error) {
+    console.error("Error pasting text into Gmail:", error);
+    return { success: false, error: error.message };
+  }
 }
 
-// Function to attach event listeners to a compose area
-function attachComposeListener(composeArea) {
-  // Mark this element as tracked to avoid attaching listeners multiple times
-  composeArea.dataset.refinedTracked = "true";
+function setupListeners() {
+  // First, try to find the textarea on initial load
+  composingTextArea = findComposingTextArea();
+  if (composingTextArea) {
+    console.log("Found composing text area on initial load");
+    // Remove any existing listeners to prevent duplicates
+    composingTextArea.removeEventListener('input', handleInputChange);
+    composingTextArea.addEventListener('input', handleInputChange);
+    // Capture initial text if any
+    handleInputChange();
+  }
   
-  // Add focus listener to track which compose area is currently active
-  composeArea.addEventListener('focus', () => {
-    console.log("Compose area focused");
-    currentComposeArea = composeArea;
+  // Disconnect any existing observer
+  if (observer) {
+    observer.disconnect();
+  }
+  
+  // Set up mutation observer to detect when compose window appears
+  observer = new MutationObserver((mutations) => {
+    let shouldCheck = false;
     
-    // Send the current text to the background script
-    const composingText = composeArea.innerText || "";
-    if (chrome.runtime && chrome.runtime.sendMessage) {
-      chrome.runtime.sendMessage({
-        action: "updateComposingText",
-        text: composingText
-      });
-    } else {
-      console.error("Chrome runtime messaging API not available");
-    }
-  });
-  
-  // Add input listener to keep track of text changes
-  composeArea.addEventListener('input', () => {
-    if (composeArea === currentComposeArea) {
-      console.log("Text changed in compose area");
-      const composingText = composeArea.innerText || "";
-      if (chrome.runtime && chrome.runtime.sendMessage) {
-        chrome.runtime.sendMessage({
-          action: "updateComposingText",
-          text: composingText
-        });
-      } else {
-        console.error("Chrome runtime messaging API not available");
+    for (const mutation of mutations) {
+      // Check if relevant DOM changes occurred
+      if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
+        shouldCheck = true;
+        break;
+      } else if (mutation.type === 'attributes' && 
+                 (mutation.attributeName === 'style' || 
+                  mutation.attributeName === 'class')) {
+        shouldCheck = true;
+        break;
       }
     }
-  });
-}
-
-// Initialize when the page has fully loaded
-window.addEventListener('load', () => {
-  console.log("Page loaded, initializing Email Refiner content script");
-  setupGmailListeners();
-});
-
-// Listen for messages from popup or background script
-if (chrome.runtime && chrome.runtime.onMessage) {
-  chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-    console.log("Content script received message:", request.action);
     
-    if (request.action === "insertRefinedText") {
-      console.log("Attempting to insert refined text into compose area");
-      
-      if (currentComposeArea) {
-        // Insert the refined text into the current compose area
-        currentComposeArea.innerText = request.text;
-        
-        // Try to trigger a change event to ensure Gmail recognizes the change
-        const event = new Event('input', { bubbles: true });
-        currentComposeArea.dispatchEvent(event);
-        
-        console.log("Text successfully inserted");
-        sendResponse({ success: true });
-      } else {
-        // Try to find a compose area if none is currently tracked
-        const composeAreas = document.querySelectorAll('[role="textbox"][g_editable="true"]');
-        if (composeAreas.length > 0) {
-          // Use the first available compose area
-          currentComposeArea = composeAreas[0];
-          
-          // Insert the refined text
-          currentComposeArea.innerText = request.text;
-          
-          // Trigger a change event
-          const event = new Event('input', { bubbles: true });
-          currentComposeArea.dispatchEvent(event);
-          
-          console.log("Text inserted into found compose area");
-          sendResponse({ success: true });
-        } else {
-          console.error("No compose area found to insert text");
-          sendResponse({ success: false, error: "No compose area found" });
+    if (shouldCheck) {
+      // Only look for the text area if we haven't found it yet or it's no longer valid
+      if (!composingTextArea || !document.contains(composingTextArea)) {
+        composingTextArea = findComposingTextArea();
+        if (composingTextArea) {
+          console.log("Found composing text area after DOM change");
+          // Remove any existing listeners to prevent duplicates
+          composingTextArea.removeEventListener('input', handleInputChange);
+          composingTextArea.addEventListener('input', handleInputChange);
+          // Capture initial text if any
+          handleInputChange();
         }
       }
     }
-    
-    return true; // Keep the message channel open for async response
+  });
+  
+  // Observe changes to the entire document
+  observer.observe(document.body, { 
+    childList: true, 
+    subtree: true,
+    attributes: true,
+    attributeFilter: ['style', 'class', 'aria-label', 'role'] // Watch for relevant attribute changes
+  });
+}
+
+// Direct document ready check
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', () => {
+    console.log("Email Refiner content script loaded on DOMContentLoaded");
+    setupListeners();
   });
 } else {
-  console.error("Chrome runtime messaging API not available in content script");
+  console.log("Email Refiner content script loaded (document already ready)");
+  setupListeners();
 }
+
+// Run the setup when the content script is injected
+// Small delay to let Gmail initialize first
+setTimeout(() => {
+  console.log("Running initial setup after timeout");
+  setupListeners();
+}, 2000);
+
+// Periodically check for new compose windows (Gmail is very dynamic)
+setInterval(() => {
+  if (!composingTextArea || !document.contains(composingTextArea)) {
+    console.log("Periodic check for new compose windows...");
+    setupListeners();
+  }
+}, 5000);
+
+// Handle messages from the popup or background script
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  console.log("Content script received message:", request.action);
+  
+  if (request.action === "getComposingText") {
+    try {
+      // Re-find the textarea if needed
+      if (!composingTextArea || !document.contains(composingTextArea)) {
+        composingTextArea = findComposingTextArea();
+      }
+      
+      const text = composingTextArea ? 
+        (composingTextArea.textContent || composingTextArea.innerText) : "";
+      
+      console.log("Sending composing text (length):", text.length);
+      sendResponse({ text: text });
+    } catch (error) {
+      console.error("Error in getComposingText handler:", error);
+      sendResponse({ text: "", error: error.message });
+    }
+    return true; // Indicate we'll send a response asynchronously
+  }
+  else if (request.action === "pasteIntoGmail" && request.text) {
+    console.log("Received paste request with text length:", request.text.length);
+    const result = pasteIntoGmail(request.text);
+    sendResponse(result);
+    return true; // Indicate we'll send a response asynchronously
+  }
+});
