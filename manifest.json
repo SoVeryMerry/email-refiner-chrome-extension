@@ -1,27 +1,26 @@
 {
   "manifest_version": 3,
   "name": "Email Refiner",
-  "version": "0.3",
+  "version": "0.2",
   "description": "Refine your emails with AI.",
   "permissions": [
     "contextMenus",
     "storage",
     "activeTab",
-    "scripting",
-    "tabs"
+    "scripting"
   ],
   "host_permissions": [
     "https://mail.google.com/*"
   ],
   "background": {
-    "service_worker": "background.js",
-    "type": "module"
+    "service_worker": "background.js"
   },
   "content_scripts": [
     {
       "matches": ["https://mail.google.com/*"],
       "js": ["content.js"],
-      "run_at": "document_end"
+      "run_at": "document_end",
+      "all_frames": true
     }
   ],
   "icons": {
