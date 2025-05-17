@@ -1,34 +1,43 @@
 // Background script for Email Refiner extension
 let currentComposingText = "";
 
-// Create context menu item on installation
+// Wait for the extension to be fully loaded before creating context menu
 chrome.runtime.onInstalled.addListener(() => {
-  // Remove existing menu items to avoid duplicates
-  chrome.contextMenus.removeAll(() => {
-    chrome.contextMenus.create({
-      id: "refineSelectedText",
-      title: "Refine Selected Text with Email Refiner",
-      contexts: ["selection"] // Only show when text is selected
-    });
-  });
+  console.log("Email Refiner extension installed, setting up context menu");
   
-  console.log("Email Refiner extension installed, context menu created");
+  // Remove existing menu items to avoid duplicates
+  if (chrome.contextMenus) {
+    chrome.contextMenus.removeAll(() => {
+      chrome.contextMenus.create({
+        id: "refineSelectedText",
+        title: "Refine Selected Text with Email Refiner",
+        contexts: ["selection"] // Only show when text is selected
+      });
+    });
+    console.log("Context menu created");
+  } else {
+    console.error("Context menus API not available");
+  }
 });
 
 // Handle context menu clicks
-chrome.contextMenus.onClicked.addListener((info, tab) => {
-  if (info.menuItemId === "refineSelectedText" && info.selectionText) {
-    console.log("Context menu clicked, selected text:", info.selectionText.substring(0, 50) + "...");
-    
-    // First, store the selected text
-    currentComposingText = info.selectionText;
-    
-    // Then open the popup
-    chrome.action.openPopup();
-    
-    // No need to send message here, the popup will request the text when it opens
-  }
-});
+if (chrome.contextMenus) {
+  chrome.contextMenus.onClicked.addListener((info, tab) => {
+    if (info.menuItemId === "refineSelectedText" && info.selectionText) {
+      console.log("Context menu clicked, selected text:", info.selectionText.substring(0, 50) + "...");
+      
+      // First, store the selected text
+      currentComposingText = info.selectionText;
+      
+      // Then open the popup
+      if (chrome.action) {
+        chrome.action.openPopup();
+      } else {
+        console.error("Chrome action API not available");
+      }
+    }
+  });
+}
 
 // Handle messages between content script and popup
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
