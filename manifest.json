@@ -8,22 +8,20 @@
     "storage",
     "activeTab",
     "scripting",
-    "tabs",
-    "clipboardWrite"
+    "tabs"
   ],
   "host_permissions": [
     "https://mail.google.com/*"
   ],
   "background": {
-    "service_worker": "background.js"
+    "service_worker": "background.js",
+    "type": "module"
   },
   "content_scripts": [
     {
       "matches": ["https://mail.google.com/*"],
       "js": ["content.js"],
-      "run_at": "document_end",
-      "all_frames": true,
-      "world": "MAIN"
+      "run_at": "document_end"
     }
   ],
   "icons": {
