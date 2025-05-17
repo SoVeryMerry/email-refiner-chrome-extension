@@ -30,9 +30,14 @@
       border: none;
       border-radius: 4px;
       font-weight: bold;
+      margin-right: 5px;
     }
     button:hover {
       background-color: #2980b9;
+    }
+    .button-container {
+      display: flex;
+      margin-top: 10px;
     }
     #refinedText {
       margin-top: 15px;
@@ -55,13 +60,6 @@
       background-color: #e7f4e4;
       color: #27ae60;
     }
-    /* Style for the Apply to Email button */
-    #applyToEmailButton {
-      background-color: #27ae60;
-    }
-    #applyToEmailButton:hover {
-      background-color: #219955;
-    }
   </style>
 </head>
 <body>
@@ -74,8 +72,10 @@
   <div id="refinedText" style="display: none;">
     <h3>Refined Email:</h3>
     <p id="refinedOutput"></p>
-    <button id="copyButton" style="margin-top: 10px; margin-right: 10px;">Copy to Clipboard</button>
-    <button id="applyToEmailButton" style="margin-top: 10px;">Apply to Email</button>
+    <div class="button-container">
+      <button id="copyButton">Copy to Clipboard</button>
+      <button id="pasteToGmailButton">Paste to Gmail</button>
+    </div>
   </div>
   
   <script src="popup.js"></script>
