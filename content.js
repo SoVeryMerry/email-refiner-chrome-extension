@@ -50,10 +50,14 @@ function attachComposeListener(composeArea) {
     
     // Send the current text to the background script
     const composingText = composeArea.innerText || "";
-    chrome.runtime.sendMessage({
-      action: "updateComposingText",
-      text: composingText
-    });
+    if (chrome.runtime && chrome.runtime.sendMessage) {
+      chrome.runtime.sendMessage({
+        action: "updateComposingText",
+        text: composingText
+      });
+    } else {
+      console.error("Chrome runtime messaging API not available");
+    }
   });
   
   // Add input listener to keep track of text changes
@@ -61,10 +65,14 @@ function attachComposeListener(composeArea) {
     if (composeArea === currentComposeArea) {
       console.log("Text changed in compose area");
       const composingText = composeArea.innerText || "";
-      chrome.runtime.sendMessage({
-        action: "updateComposingText",
-        text: composingText
-      });
+      if (chrome.runtime && chrome.runtime.sendMessage) {
+        chrome.runtime.sendMessage({
+          action: "updateComposingText",
+          text: composingText
+        });
+      } else {
+        console.error("Chrome runtime messaging API not available");
+      }
     }
   });
 }
@@ -76,44 +84,48 @@ window.addEventListener('load', () => {
 });
 
 // Listen for messages from popup or background script
-chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  console.log("Content script received message:", request.action);
-  
-  if (request.action === "insertRefinedText") {
-    console.log("Attempting to insert refined text into compose area");
+if (chrome.runtime && chrome.runtime.onMessage) {
+  chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+    console.log("Content script received message:", request.action);
     
-    if (currentComposeArea) {
-      // Insert the refined text into the current compose area
-      currentComposeArea.innerText = request.text;
+    if (request.action === "insertRefinedText") {
+      console.log("Attempting to insert refined text into compose area");
       
-      // Try to trigger a change event to ensure Gmail recognizes the change
-      const event = new Event('input', { bubbles: true });
-      currentComposeArea.dispatchEvent(event);
-      
-      console.log("Text successfully inserted");
-      sendResponse({ success: true });
-    } else {
-      // Try to find a compose area if none is currently tracked
-      const composeAreas = document.querySelectorAll('[role="textbox"][g_editable="true"]');
-      if (composeAreas.length > 0) {
-        // Use the first available compose area
-        currentComposeArea = composeAreas[0];
-        
-        // Insert the refined text
+      if (currentComposeArea) {
+        // Insert the refined text into the current compose area
         currentComposeArea.innerText = request.text;
         
-        // Trigger a change event
+        // Try to trigger a change event to ensure Gmail recognizes the change
         const event = new Event('input', { bubbles: true });
         currentComposeArea.dispatchEvent(event);
         
-        console.log("Text inserted into found compose area");
+        console.log("Text successfully inserted");
         sendResponse({ success: true });
       } else {
-        console.error("No compose area found to insert text");
-        sendResponse({ success: false, error: "No compose area found" });
+        // Try to find a compose area if none is currently tracked
+        const composeAreas = document.querySelectorAll('[role="textbox"][g_editable="true"]');
+        if (composeAreas.length > 0) {
+          // Use the first available compose area
+          currentComposeArea = composeAreas[0];
+          
+          // Insert the refined text
+          currentComposeArea.innerText = request.text;
+          
+          // Trigger a change event
+          const event = new Event('input', { bubbles: true });
+          currentComposeArea.dispatchEvent(event);
+          
+          console.log("Text inserted into found compose area");
+          sendResponse({ success: true });
+        } else {
+          console.error("No compose area found to insert text");
+          sendResponse({ success: false, error: "No compose area found" });
+        }
       }
     }
-  }
-  
-  return true; // Keep the message channel open for async response
-});
+    
+    return true; // Keep the message channel open for async response
+  });
+} else {
+  console.error("Chrome runtime messaging API not available in content script");
+}
