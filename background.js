@@ -1,45 +1,36 @@
 // Background script for Email Refiner extension
 let currentComposingText = "";
 
-// Wait for the extension to be fully loaded before creating context menu
+// Create context menu item on installation
 chrome.runtime.onInstalled.addListener(() => {
-  console.log("Email Refiner extension installed, setting up context menu");
-  
   // Remove existing menu items to avoid duplicates
-  if (chrome.contextMenus) {
-    chrome.contextMenus.removeAll(() => {
-      chrome.contextMenus.create({
-        id: "refineSelectedText",
-        title: "Refine Selected Text with Email Refiner",
-        contexts: ["selection"] // Only show when text is selected
-      });
+  chrome.contextMenus.removeAll(() => {
+    chrome.contextMenus.create({
+      id: "refineSelectedText",
+      title: "Refine Selected Text with Email Refiner",
+      contexts: ["selection"] // Only show when text is selected
     });
-    console.log("Context menu created");
-  } else {
-    console.error("Context menus API not available");
-  }
+  });
+  
+  console.log("Email Refiner extension installed, context menu created");
 });
 
 // Handle context menu clicks
-if (chrome.contextMenus) {
-  chrome.contextMenus.onClicked.addListener((info, tab) => {
-    if (info.menuItemId === "refineSelectedText" && info.selectionText) {
-      console.log("Context menu clicked, selected text:", info.selectionText.substring(0, 50) + "...");
-      
-      // First, store the selected text
-      currentComposingText = info.selectionText;
-      
-      // Then open the popup
-      if (chrome.action) {
-        chrome.action.openPopup();
-      } else {
-        console.error("Chrome action API not available");
-      }
-    }
-  });
-}
+chrome.contextMenus.onClicked.addListener((info, tab) => {
+  if (info.menuItemId === "refineSelectedText" && info.selectionText) {
+    console.log("Context menu clicked, selected text:", info.selectionText.substring(0, 50) + "...");
+    
+    // First, store the selected text
+    currentComposingText = info.selectionText;
+    
+    // Then open the popup
+    chrome.action.openPopup();
+    
+    // No need to send message here, the popup will request the text when it opens
+  }
+});
 
-// Handle messages between content script and popup
+// Handle messages between content script, popup, and other extension components
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   console.log("Background received message:", request.action);
   
@@ -61,6 +52,14 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     currentComposingText = "";
     console.log("Cleared composing text");
     sendResponse({ status: "success" });
+    return true; // Indicate we sent a response
+  }
+  // For messages that need to be forwarded to content scripts or popup
+  else if (request.action === "pasteIntoGmail" && request.text) {
+    // This will be handled directly by the popup script sending to the content script
+    // but we could add additional logic here if needed
+    console.log("Background received paste request for forwarding");
+    sendResponse({ status: "forwarding" });
     return true; // Indicate we sent a response
   }
 });
