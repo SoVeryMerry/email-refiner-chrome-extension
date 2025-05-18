@@ -1,4 +1,4 @@
-// Improved content script for Email Refiner extension
+// Content script modifications for Email Refiner extension
 let composingTextArea = null;
 let observer = null;
 
@@ -70,6 +70,37 @@ function handleInputChange() {
         console.error("Failed to send message to background script:", error);
       }
     }
+  }
+}
+
+// Function to paste text into the Gmail compose box
+function pasteIntoGmail(textToPaste) {
+  try {
+    // Make sure we have the most current composing area
+    if (!composingTextArea || !document.contains(composingTextArea)) {
+      composingTextArea = findComposingTextArea();
+    }
+    
+    if (!composingTextArea) {
+      console.error("Could not find Gmail compose area for pasting");
+      return { success: false, error: "No compose area found" };
+    }
+    
+    // Replace the current text with the refined text
+    composingTextArea.textContent = textToPaste;
+    
+    // Trigger input event to ensure Gmail registers the change
+    const inputEvent = new Event('input', {
+      bubbles: true,
+      cancelable: true
+    });
+    composingTextArea.dispatchEvent(inputEvent);
+    
+    console.log("Successfully pasted text into Gmail");
+    return { success: true };
+  } catch (error) {
+    console.error("Error pasting text into Gmail:", error);
+    return { success: false, error: error.message };
   }
 }
 
@@ -178,6 +209,12 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       console.error("Error in getComposingText handler:", error);
       sendResponse({ text: "", error: error.message });
     }
+    return true; // Indicate we'll send a response asynchronously
+  }
+  else if (request.action === "pasteIntoGmail" && request.text) {
+    console.log("Received paste request with text length:", request.text.length);
+    const result = pasteIntoGmail(request.text);
+    sendResponse(result);
     return true; // Indicate we'll send a response asynchronously
   }
 });

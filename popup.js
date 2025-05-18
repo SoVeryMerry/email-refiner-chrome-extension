@@ -4,6 +4,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const refinedTextDiv = document.getElementById('refinedText');
   const refinedOutputParagraph = document.getElementById('refinedOutput');
   const copyButton = document.getElementById('copyButton');
+  const pasteToGmailButton = document.getElementById('pasteToGmailButton');
   
   // Storage key for API key
   const API_KEY_STORAGE_KEY = 'openai_api_key';
@@ -96,6 +97,44 @@ document.addEventListener('DOMContentLoaded', () => {
         resolve("");
       }
     });
+  };
+
+  // Function to paste text directly into Gmail
+  const pasteToGmail = async (text) => {
+    console.log("Attempting to paste text to Gmail");
+    
+    try {
+      // Query the current active tab to ensure we're targeting Gmail
+      const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (!tabs || tabs.length === 0) {
+        throw new Error("No active tab found");
+      }
+      
+      const activeTab = tabs[0];
+      if (!activeTab.url || !activeTab.url.includes('mail.google.com')) {
+        throw new Error("Active tab is not Gmail");
+      }
+      
+      // Send message to content script to paste the text
+      const response = await new Promise((resolve) => {
+        chrome.tabs.sendMessage(activeTab.id, { 
+          action: "pasteIntoGmail", 
+          text: text 
+        }, (result) => {
+          if (chrome.runtime.lastError) {
+            console.error("Error sending paste message:", chrome.runtime.lastError);
+            resolve({ success: false, error: chrome.runtime.lastError.message });
+            return;
+          }
+          resolve(result || { success: false, error: "No response from content script" });
+        });
+      });
+      
+      return response;
+    } catch (error) {
+      console.error("Error in pasteToGmail:", error);
+      return { success: false, error: error.message };
+    }
   };
 
   const refineText = async (textToRefine) => {
@@ -205,6 +244,23 @@ document.addEventListener('DOMContentLoaded', () => {
           console.error('Failed to copy text: ', err);
           showStatusMessage('Failed to copy text', true);
         });
+    }
+  });
+  
+  // Handle paste to Gmail button click
+  pasteToGmailButton.addEventListener('click', async () => {
+    const refinedText = refinedOutputParagraph.textContent;
+    if (!refinedText) {
+      showStatusMessage('No refined text to paste', true);
+      return;
+    }
+    
+    const result = await pasteToGmail(refinedText);
+    if (result.success) {
+      showStatusMessage('Successfully pasted to Gmail!');
+    } else {
+      console.error("Failed to paste to Gmail:", result.error);
+      showStatusMessage(`Failed to paste: ${result.error || "Unknown error"}`, true);
     }
   });
   

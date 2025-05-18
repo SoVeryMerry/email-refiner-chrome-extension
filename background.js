@@ -30,7 +30,7 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
   }
 });
 
-// Handle messages between content script and popup
+// Handle messages between content script, popup, and other extension components
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   console.log("Background received message:", request.action);
   
@@ -52,6 +52,14 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     currentComposingText = "";
     console.log("Cleared composing text");
     sendResponse({ status: "success" });
+    return true; // Indicate we sent a response
+  }
+  // For messages that need to be forwarded to content scripts or popup
+  else if (request.action === "pasteIntoGmail" && request.text) {
+    // This will be handled directly by the popup script sending to the content script
+    // but we could add additional logic here if needed
+    console.log("Background received paste request for forwarding");
+    sendResponse({ status: "forwarding" });
     return true; // Indicate we sent a response
   }
 });
